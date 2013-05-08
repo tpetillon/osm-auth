@@ -30,6 +30,15 @@ module.exports = function(keys, o) {
         return !!(token('oauth_token') && token('oauth_token_secret'));
     };
 
+    oauth.hasAccess = function(callback) {
+        auth.xhr({
+            method: 'GET',
+            path: '/api/0.6/user'
+        }, function(err, resp) {
+            callback(!err);
+        });
+    };
+
     oauth.logout = function() {
         token('oauth_token', '');
         token('oauth_token_secret', '');
@@ -39,7 +48,6 @@ module.exports = function(keys, o) {
 
     // TODO: detect lack of click event
     oauth.authenticate = function(callback) {
-        if (oauth.authenticated()) return callback();
 
         oauth.logout();
 
@@ -123,25 +131,18 @@ module.exports = function(keys, o) {
     // A single XMLHttpRequest wrapper that does authenticated calls if the
     // user has logged in.
     oauth.xhr = function(options, callback) {
-        if (!oauth.authenticated()) {
-            if (o.auto) return oauth.authenticate(run);
-            else return callback('not authenticated', null);
-        } else return run();
+        var params = timenonce(getAuth(o)),
+            url = o.url + options.path,
+            oauth_token_secret = token('oauth_token_secret');
 
-        function run() {
-            var params = timenonce(getAuth(o)),
-                url = o.url + options.path,
-                oauth_token_secret = token('oauth_token_secret');
+        params.oauth_token = token('oauth_token');
+        params.oauth_signature = ohauth.signature(
+            keys[o.url].oauth_secret,
+            oauth_token_secret,
+            ohauth.baseString(options.method, url, params));
 
-            params.oauth_token = token('oauth_token');
-            params.oauth_signature = ohauth.signature(
-                keys[o.url].oauth_secret,
-                oauth_token_secret,
-                ohauth.baseString(options.method, url, params));
-
-            ohauth.xhr(options.method,
-                url, params, options.content, options.options, done);
-        }
+        ohauth.xhr(options.method,
+            url, params, options.content, options.options, done);
 
         function done(err, xhr) {
             if (err) return callback(err);
@@ -195,6 +196,7 @@ module.exports = function(keys, o) {
     // from a single object, you'll need to use `delete` to make sure that
     // it doesn't contain undesired properties for authentication
     function getAuth(o) {
+        if (!keys[o.url]) throw 'No keys set for ' + o.url;
         return {
             oauth_consumer_key: keys[o.url].oauth_consumer_key,
             oauth_signature_method: "HMAC-SHA1"
